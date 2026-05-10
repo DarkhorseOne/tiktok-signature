@@ -675,9 +675,11 @@ async function _signDirectly(fetchUrl, userAgent = null) {
     }
 
     const u = new URL(url);
-    const msTokenMatches = document.cookie.match(/msToken=([^;]+)/g) || [];
+    const msTokenMatches = [
+      ...document.cookie.matchAll(/msToken=([^;]+)/g),
+    ];
     const msToken = msTokenMatches.length
-      ? msTokenMatches[msTokenMatches.length - 1].split("=", 2)[1]
+      ? msTokenMatches[msTokenMatches.length - 1][1]
       : "";
     u.searchParams.delete("X-Bogus");
     u.searchParams.delete("X-Gnarly");
