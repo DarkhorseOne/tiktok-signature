@@ -675,9 +675,7 @@ async function _signDirectly(fetchUrl, userAgent = null) {
     }
 
     const u = new URL(url);
-    const msTokenMatches = [
-      ...document.cookie.matchAll(/msToken=([^;]+)/g),
-    ];
+    const msTokenMatches = [...document.cookie.matchAll(/msToken=([^;]+)/g)];
     const msToken = msTokenMatches.length
       ? msTokenMatches[msTokenMatches.length - 1][1]
       : "";
