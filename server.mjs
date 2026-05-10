@@ -591,13 +591,38 @@ async function _generateSignedUrlInternal(
   normalizeUrlFingerprint(urlObj);
   const fetchUrl = urlObj.toString();
 
-  if (navigateTo) {
-    console.log(`[Server] Sign via page intercept: navigateTo=${navigateTo}`);
-    return _signViaPageIntercept(fetchUrl, navigateTo, userAgent);
-  }
+  const attempt = async () => {
+    if (navigateTo) {
+      console.log(`[Server] Sign via page intercept: navigateTo=${navigateTo}`);
+      return _signViaPageIntercept(fetchUrl, navigateTo, userAgent);
+    }
+    console.log(`[Server] Signing URL: ${fetchUrl.substring(0, 100)}...`);
+    return _signDirectly(fetchUrl, userAgent);
+  };
 
-  console.log(`[Server] Signing URL: ${fetchUrl.substring(0, 100)}...`);
-  return _signDirectly(fetchUrl, userAgent);
+  try {
+    return await attempt();
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    // SDK got detached from the page (navigation, crash, lost context).
+    // Tear the session down and rebuild it, then retry the sign once.
+    if (/SDK not initialized|SDK not ready/i.test(msg)) {
+      console.log(
+        `[Server] "${msg}" — restarting browser session and retrying...`,
+      );
+      try {
+        await closeBrowser();
+      } catch (closeErr) {
+        console.error(
+          "[Server] closeBrowser during recovery failed:",
+          closeErr.message,
+        );
+      }
+      await initBrowser();
+      return attempt();
+    }
+    throw e;
+  }
 }
 
 async function _signViaPageIntercept(targetUrl, navigateTo, userAgent = null) {
