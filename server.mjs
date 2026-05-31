@@ -105,8 +105,10 @@ const signedUrlCache = new Map();
 const SIGNED_CACHE_MAX_AGE_MS = 60_000;
 
 // Auto-refresh configuration to avoid blocks
-const MAX_GENERATIONS_BEFORE_REFRESH = 500; // Restart browser after this many signatures
-const MAX_SESSION_AGE_MS = 30 * 60 * 1000; // Restart browser after 30 minutes
+const MAX_GENERATIONS_BEFORE_REFRESH =
+  Number(process.env.MAX_GENERATIONS_BEFORE_REFRESH) || 500; // Restart browser after this many signatures
+const MAX_SESSION_AGE_MS =
+  Number(process.env.MAX_SESSION_AGE_MS) || 30 * 60 * 1000; // Restart browser after 30 minutes
 
 // Request queue for sequential processing (prevents concurrent access to browser page)
 const requestQueue = [];
