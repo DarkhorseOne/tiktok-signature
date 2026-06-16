@@ -29,7 +29,7 @@ start() {
   fi
   mkdir -p "$(dirname "$PID_FILE")"
   nohup node --env-file-if-exists=.env "$ENTRY" >> "$LOG_FILE" 2>&1 &
-  echo $! > "$PID_FILE"
+  echo "$!" > "$PID_FILE"
   sleep 1
   if is_running; then
     echo "started (pid $(cat "$PID_FILE")), logs -> $LOG_FILE"
@@ -46,7 +46,12 @@ stop() {
     return 0
   fi
   local pid
-  pid="$(cat "$PID_FILE")"
+  pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  if [ -z "$pid" ]; then
+    rm -f "$PID_FILE"
+    echo "not running"
+    return 0
+  fi
   kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 10); do
     kill -0 "$pid" 2>/dev/null || break
