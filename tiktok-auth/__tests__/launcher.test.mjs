@@ -1,3 +1,4 @@
+import fs from "fs";
 import { installAuthHook } from "../index.mjs";
 
 // 构造一个假的 puppeteer 单例：launch 返回带 newPage 的假 browser
@@ -61,5 +62,24 @@ describe("installAuthHook", () => {
     const page = await browser.newPage();
     expect(page).toBeDefined();
     expect(events).toEqual([["launch"], ["newPage"]]);
+  });
+});
+
+describe("auth-server.mjs entry ordering", () => {
+  const src = fs.readFileSync(
+    new URL("../../auth-server.mjs", import.meta.url),
+    "utf8",
+  );
+
+  test("imports installAuthHook", () => {
+    expect(src).toMatch(/installAuthHook/);
+  });
+
+  test("installs hook before importing server.mjs", () => {
+    const hookIdx = src.indexOf("installAuthHook(");
+    const serverIdx = src.indexOf('import("./server.mjs")');
+    expect(hookIdx).toBeGreaterThan(-1);
+    expect(serverIdx).toBeGreaterThan(-1);
+    expect(hookIdx).toBeLessThan(serverIdx);
   });
 });
