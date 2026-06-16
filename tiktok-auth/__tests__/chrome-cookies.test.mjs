@@ -4,6 +4,7 @@ import {
   decryptValue,
   chromeTimeToUnix,
   rowToCookie,
+  getChromeTikTokCookies,
 } from "../chrome-cookies.mjs";
 
 const IV = Buffer.alloc(16, " ");
@@ -103,5 +104,15 @@ describe("rowToCookie mapping", () => {
     };
     const c = rowToCookie(row, key, { stripDomainHash: true });
     expect(c.expires).toBe(1700000000);
+  });
+});
+
+describe("getChromeTikTokCookies fallback", () => {
+  test("returns [] (does not throw) when chrome dir is missing", async () => {
+    const result = await getChromeTikTokCookies({
+      chromeDir: "/definitely/not/here",
+      profile: "Default",
+    });
+    expect(result).toEqual([]);
   });
 });
