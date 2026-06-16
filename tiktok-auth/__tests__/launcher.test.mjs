@@ -43,7 +43,8 @@ describe("installAuthHook", () => {
     expect(installed).toBe(true);
 
     const browser = await pptr.launch();
-    await browser.newPage();
+    const page = await browser.newPage();
+    expect(page).toBeDefined();
     expect(events).toEqual([["launch"], ["newPage"], ["setCookie", 1]]);
   });
 

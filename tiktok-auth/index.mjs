@@ -14,14 +14,17 @@ export async function installAuthHook(puppeteer, options = {}) {
       : process.env.TIKTOK_AUTH_ENABLED === "true";
   if (!enabled) return false;
 
+  if (puppeteer.__authHookInstalled) return true;
+  puppeteer.__authHookInstalled = true;
+
   const getCookies = options.getCookies || getChromeTikTokCookies;
   const origLaunch = puppeteer.launch.bind(puppeteer);
 
   puppeteer.launch = async (...args) => {
     const browser = await origLaunch(...args);
     const origNewPage = browser.newPage.bind(browser);
-    browser.newPage = async (...a) => {
-      const page = await origNewPage(...a);
+    browser.newPage = async (...pageArgs) => {
+      const page = await origNewPage(...pageArgs);
       try {
         const cookies = await getCookies({ profile: process.env.CHROME_PROFILE });
         if (cookies && cookies.length) {
