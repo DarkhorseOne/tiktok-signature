@@ -76,10 +76,18 @@ export function secureWriteFile(filePath, data) {
   try {
     fs.writeSync(fd, data);
     fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
+  } catch (e) {
+    try { fs.closeSync(fd); } catch (e2) {}
+    fs.rmSync(tmp, { force: true });
+    throw e;
   }
-  fs.renameSync(tmp, filePath);
+  try { fs.closeSync(fd); } catch (e) {}
+  try {
+    fs.renameSync(tmp, filePath);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
   fs.chmodSync(filePath, 0o600);
 }
 
