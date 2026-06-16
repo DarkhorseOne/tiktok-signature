@@ -14,16 +14,16 @@ export function deriveKey(password) {
 /** 解密单个 encrypted_value（Buffer）。stripDomainHash=true 时切掉解密后前 32 字节。 */
 export function decryptValue(encrypted, key, { stripDomainHash } = {}) {
   if (!Buffer.isBuffer(encrypted)) encrypted = Buffer.from(encrypted);
-  const prefix = encrypted.slice(0, 3).toString("latin1");
+  const prefix = encrypted.subarray(0, 3).toString("latin1");
   if (prefix !== "v10" && prefix !== "v11") {
     // 非钥匙串加密，按明文返回
     return encrypted.toString("utf8");
   }
-  const body = encrypted.slice(3);
+  const body = encrypted.subarray(3);
   const decipher = crypto.createDecipheriv("aes-128-cbc", key, IV);
   decipher.setAutoPadding(true);
   let decrypted = Buffer.concat([decipher.update(body), decipher.final()]);
-  if (stripDomainHash) decrypted = decrypted.slice(32);
+  if (stripDomainHash) decrypted = decrypted.subarray(32);
   return decrypted.toString("utf8");
 }
 

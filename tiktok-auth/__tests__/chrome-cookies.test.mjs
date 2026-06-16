@@ -46,4 +46,8 @@ describe("chrome-cookies decrypt + time", () => {
   test("chromeTimeToUnix returns undefined for session cookies (0)", () => {
     expect(chromeTimeToUnix(0)).toBeUndefined();
   });
+
+  test("decryptValue returns raw UTF-8 for unencrypted (non-v10/v11) values", () => {
+    expect(decryptValue(Buffer.from("plaintext", "utf8"), key)).toBe("plaintext");
+  });
 });
