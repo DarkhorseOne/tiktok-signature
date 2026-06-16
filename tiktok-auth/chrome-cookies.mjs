@@ -100,6 +100,8 @@ function querySqlite(dbPath, sql) {
         sql,
       ], { encoding: "utf8" });
     } catch (e) {
+      // Only fall back when the first binary is missing; re-throw real DB/SQL errors.
+      if (e.code !== "ENOENT") throw e;
       out = execFileSync("/usr/bin/sqlite3", ["-json", tmpDb, sql], {
         encoding: "utf8",
       });
@@ -154,7 +156,10 @@ function resolveProfileDb(baseDir, requested) {
   return path.join(baseDir, "Default", "Cookies");
 }
 
-/** 从本机 Chrome 提取并解密 TikTok cookie。任何失败都返回 []（不抛）。 */
+/**
+ * 从本机 Chrome 提取并解密 TikTok cookie。任何失败都返回 []（不抛）。
+ * async 仅为让调用方统一 await；内部 I/O 全部同步。
+ */
 export async function getChromeTikTokCookies({ profile, chromeDir } = {}) {
   try {
     const baseDir = chromeDir || chromeBaseDir();
