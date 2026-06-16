@@ -11,7 +11,7 @@ LOG_FILE="tiktok-auth/auth-server.log"
 
 PORT=8080
 if [ -f .env ]; then
-  envport="$(grep -E '^PORT=' .env | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+  envport="$(grep -E '^PORT=' .env | tail -n1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]' || true)"
   [ -n "${envport:-}" ] && PORT="$envport"
 fi
 
