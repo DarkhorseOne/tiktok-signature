@@ -170,3 +170,67 @@ export function listProfiles() {
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
+
+export function deleteProfile(name) {
+  assertValidName(name);
+  const dir = profileDir(name);
+  assertContained(profilesDir(), dir);
+  let st;
+  try {
+    st = fs.lstatSync(dir);
+  } catch (e) {
+    throw new Error(`profile not found: ${name}`);
+  }
+  if (st.isSymbolicLink()) throw new Error(`refusing to delete symlink: ${dir}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+export function renameProfile(oldName, newName) {
+  assertValidName(oldName);
+  assertValidName(newName);
+  if (!profileExists(oldName)) throw new Error(`profile not found: ${oldName}`);
+  if (profileExists(newName)) throw new Error(`profile already exists: ${newName}`);
+  const to = profileDir(newName);
+  assertContained(profilesDir(), to);
+  fs.renameSync(profileDir(oldName), to);
+  const metaPath = path.join(to, "meta.json");
+  const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+  meta.name = newName;
+  secureWriteFile(metaPath, JSON.stringify(meta, null, 2));
+}
+
+function backupTimestamp() {
+  return new Date()
+    .toISOString()
+    .replace(/[:-]/g, "")
+    .replace(/\.\d+Z$/, "Z")
+    .replace("T", "-");
+}
+
+export function backupProfile(name, destPath) {
+  const { meta, cookies } = readProfile(name);
+  const payload = JSON.stringify(
+    {
+      type: "tiktok-sig-auth-backup",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      meta,
+      cookies,
+    },
+    null,
+    2,
+  );
+  let dest;
+  if (destPath) {
+    dest = path.resolve(destPath);
+    if (fs.existsSync(dest)) {
+      throw new Error(`backup destination already exists: ${dest}`);
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+  } else {
+    ensureDirs(backupsDir());
+    dest = path.join(backupsDir(), `${name}-${backupTimestamp()}.json`);
+  }
+  secureWriteFile(dest, payload);
+  return dest;
+}

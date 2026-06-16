@@ -8,6 +8,9 @@ import {
   loadProfileCookies,
   profileExists,
   listProfiles,
+  deleteProfile,
+  renameProfile,
+  backupProfile,
 } from "../profile-store.mjs";
 
 let home;
@@ -88,5 +91,42 @@ describe("listProfiles", () => {
     fs.mkdirSync(path.join(home, "profiles", "junk"), { recursive: true });
     const names = listProfiles().map((p) => p.name);
     expect(names).toEqual(["a", "b"]);
+  });
+});
+
+describe("delete / rename / backup", () => {
+  test("deleteProfile removes; missing throws", () => {
+    writeProfile("work", COOKIES, {});
+    deleteProfile("work");
+    expect(profileExists("work")).toBe(false);
+    expect(() => deleteProfile("work")).toThrow(/profile not found/);
+  });
+
+  test("renameProfile moves dir + updates meta.name; collision throws", () => {
+    writeProfile("old", COOKIES, { origin: "chrome", sourceChromeProfile: "Default" });
+    renameProfile("old", "new");
+    expect(profileExists("old")).toBe(false);
+    expect(readProfile("new").meta.name).toBe("new");
+    expect(readProfile("new").meta.sourceChromeProfile).toBe("Default");
+    writeProfile("other", COOKIES, {});
+    expect(() => renameProfile("new", "other")).toThrow(/already exists/);
+  });
+
+  test("backupProfile default location writes a 0600 backup file with payload", () => {
+    writeProfile("work", COOKIES, { origin: "chrome", sourceChromeProfile: "Default" });
+    const dest = backupProfile("work");
+    const j = JSON.parse(fs.readFileSync(dest, "utf8"));
+    expect(j.type).toBe("tiktok-sig-auth-backup");
+    expect(j.cookies).toEqual(COOKIES);
+    expect(j.meta.sourceChromeProfile).toBe("Default");
+    expect(fs.statSync(dest).mode & 0o777).toBe(0o600);
+  });
+
+  test("backupProfile explicit dest refuses to overwrite", () => {
+    writeProfile("work", COOKIES, {});
+    const dest = path.join(home, "out", "bk.json");
+    backupProfile("work", dest);
+    expect(fs.existsSync(dest)).toBe(true);
+    expect(() => backupProfile("work", dest)).toThrow(/already exists/);
   });
 });
