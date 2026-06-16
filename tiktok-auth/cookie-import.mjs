@@ -28,12 +28,13 @@ function mapExtensionCookie(c) {
   if (c.session !== true && typeof c.expirationDate === "number") {
     out.expires = Math.floor(c.expirationDate);
   }
+  if (!out.name) return null;
   return out;
 }
 
 function sanitizeBackupCookie(c) {
   const o = pick(c, ["name", "value", "domain", "path", "secure", "httpOnly", "expires", "sameSite"]);
-  if (!o.name || !o.domain) return null;
+  if (!o.name || !o.domain || !o.domain.endsWith("tiktok.com")) return null;
   o.secure = !!o.secure;
   o.httpOnly = !!o.httpOnly;
   if (o.path == null) o.path = "/";
