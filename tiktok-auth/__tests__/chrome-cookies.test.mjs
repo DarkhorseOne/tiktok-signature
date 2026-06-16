@@ -3,6 +3,7 @@ import {
   deriveKey,
   decryptValue,
   chromeTimeToUnix,
+  rowToCookie,
 } from "../chrome-cookies.mjs";
 
 const IV = Buffer.alloc(16, " ");
@@ -49,5 +50,72 @@ describe("chrome-cookies decrypt + time", () => {
 
   test("decryptValue returns raw UTF-8 for unencrypted (non-v10/v11) values", () => {
     expect(decryptValue(Buffer.from("plaintext", "utf8"), key)).toBe("plaintext");
+  });
+});
+
+describe("rowToCookie mapping", () => {
+  const key = deriveKey("test-password");
+
+  test("maps sqlite row to puppeteer cookie and decrypts", () => {
+    const cipher = crypto.createCipheriv("aes-128-cbc", key, IV);
+    const enc = Buffer.concat([
+      Buffer.from("v10", "latin1"),
+      Buffer.concat([
+        cipher.update(Buffer.concat([crypto.randomBytes(32), Buffer.from("v")])),
+        cipher.final(),
+      ]),
+    ]);
+    const row = {
+      name: "sessionid",
+      domain: ".tiktok.com",
+      path: "/",
+      secure: 1,
+      httpOnly: 1,
+      expires: 0,
+      enc: enc.toString("hex"),
+    };
+    expect(rowToCookie(row, key, { stripDomainHash: true })).toEqual({
+      name: "sessionid",
+      value: "v",
+      domain: ".tiktok.com",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+    });
+  });
+
+  test("returns null for undecryptable value (skipped, not thrown)", () => {
+    const row = {
+      name: "x",
+      domain: ".tiktok.com",
+      path: "/",
+      secure: 0,
+      httpOnly: 0,
+      expires: 0,
+      enc: "763130" + "0102030405",
+    };
+    expect(rowToCookie(row, key, { stripDomainHash: true })).toBeNull();
+  });
+
+  test("includes expires for non-session cookies", () => {
+    const cipher = crypto.createCipheriv("aes-128-cbc", key, IV);
+    const enc = Buffer.concat([
+      Buffer.from("v10", "latin1"),
+      Buffer.concat([
+        cipher.update(Buffer.concat([crypto.randomBytes(32), Buffer.from("y")])),
+        cipher.final(),
+      ]),
+    ]);
+    const row = {
+      name: "sid_guard",
+      domain: ".tiktok.com",
+      path: "/",
+      secure: 1,
+      httpOnly: 0,
+      expires: (1700000000 + 11644473600) * 1e6,
+      enc: enc.toString("hex"),
+    };
+    const c = rowToCookie(row, key, { stripDomainHash: true });
+    expect(c.expires).toBe(1700000000);
   });
 });

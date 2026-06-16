@@ -33,3 +33,24 @@ export function chromeTimeToUnix(expiresUtc) {
   if (!n || n <= 0) return undefined;
   return Math.floor(n / 1e6 - CHROME_EPOCH_OFFSET_SECONDS);
 }
+
+/** 把一条 sqlite 行（含 hex 密文）映射为 Puppeteer setCookie 对象；解密失败返回 null */
+export function rowToCookie(row, key, { stripDomainHash } = {}) {
+  let value;
+  try {
+    value = decryptValue(Buffer.from(row.enc, "hex"), key, { stripDomainHash });
+  } catch (e) {
+    return null;
+  }
+  const cookie = {
+    name: row.name,
+    value,
+    domain: row.domain,
+    path: row.path || "/",
+    secure: !!row.secure,
+    httpOnly: !!row.httpOnly,
+  };
+  const expires = chromeTimeToUnix(row.expires);
+  if (expires !== undefined) cookie.expires = expires;
+  return cookie;
+}
