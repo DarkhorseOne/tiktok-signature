@@ -7,7 +7,12 @@
 import puppeteer from "puppeteer-extra";
 import { installAuthHook } from "./tiktok-auth/index.mjs";
 
-const installed = await installAuthHook(puppeteer);
+let installed = false;
+try {
+  installed = await installAuthHook(puppeteer);
+} catch (e) {
+  console.warn(`[auth] 钩子安装失败，回退匿名模式：${e.message}`);
+}
 console.log(
   installed
     ? "[auth] 登录态注入已启用 (TIKTOK_AUTH_ENABLED=true)"
