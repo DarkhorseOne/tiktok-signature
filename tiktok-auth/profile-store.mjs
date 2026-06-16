@@ -61,7 +61,7 @@ export function secureMkdir(dir) {
 }
 
 /** 原子安全写：同目录临时文件(O_EXCL|O_NOFOLLOW,0600)+fsync+rename，无可读窗口 */
-export function secureWriteFile(filePath, data) {
+export function secureWriteFile(filePath, data, { noClobber = false } = {}) {
   const dir = path.dirname(filePath);
   const tmp = path.join(
     dir,
@@ -83,7 +83,12 @@ export function secureWriteFile(filePath, data) {
   }
   try { fs.closeSync(fd); } catch (e) {}
   try {
-    fs.renameSync(tmp, filePath);
+    if (noClobber) {
+      fs.linkSync(tmp, filePath); // atomic; throws EEXIST if dest already exists
+      fs.rmSync(tmp, { force: true });
+    } else {
+      fs.renameSync(tmp, filePath);
+    }
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;
@@ -188,8 +193,9 @@ export function deleteProfile(name) {
 export function renameProfile(oldName, newName) {
   assertValidName(oldName);
   assertValidName(newName);
+  assertContained(profilesDir(), profileDir(oldName));
   if (!profileExists(oldName)) throw new Error(`profile not found: ${oldName}`);
-  if (profileExists(newName)) throw new Error(`profile already exists: ${newName}`);
+  if (fs.existsSync(profileDir(newName))) throw new Error(`profile already exists: ${newName}`);
   const to = profileDir(newName);
   assertContained(profilesDir(), to);
   fs.renameSync(profileDir(oldName), to);
@@ -221,16 +227,18 @@ export function backupProfile(name, destPath) {
     2,
   );
   let dest;
+  let noClobber = false;
   if (destPath) {
     dest = path.resolve(destPath);
     if (fs.existsSync(dest)) {
       throw new Error(`backup destination already exists: ${dest}`);
     }
     fs.mkdirSync(path.dirname(dest), { recursive: true });
+    noClobber = true;
   } else {
     ensureDirs(backupsDir());
     dest = path.join(backupsDir(), `${name}-${backupTimestamp()}.json`);
   }
-  secureWriteFile(dest, payload);
+  secureWriteFile(dest, payload, { noClobber });
   return dest;
 }

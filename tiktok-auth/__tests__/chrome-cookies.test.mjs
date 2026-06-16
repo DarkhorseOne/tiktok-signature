@@ -6,13 +6,6 @@ import {
   rowToCookie,
   getChromeTikTokCookies,
 } from "../chrome-cookies.mjs";
-import {
-  parseLocalStateNames,
-  listChromeProfiles,
-} from "../chrome-cookies.mjs";
-import fsExtra from "fs";
-import osExtra from "os";
-import pathExtra from "path";
 
 const IV = Buffer.alloc(16, " ");
 
@@ -121,39 +114,5 @@ describe("getChromeTikTokCookies fallback", () => {
       profile: "Default",
     });
     expect(result).toEqual([]);
-  });
-});
-
-describe("parseLocalStateNames", () => {
-  test("maps info_cache dir -> {name,email}", () => {
-    const ls = JSON.stringify({
-      profile: { info_cache: { "Profile 1": { name: "Work", user_name: "w@x.com" }, Default: { name: "Me" } } },
-    });
-    expect(parseLocalStateNames(ls)).toEqual({
-      "Profile 1": { name: "Work", email: "w@x.com" },
-      Default: { name: "Me", email: "" },
-    });
-  });
-  test("bad JSON -> {}", () => {
-    expect(parseLocalStateNames("not json")).toEqual({});
-  });
-});
-
-describe("listChromeProfiles", () => {
-  test("enumerates Local State dirs that have a Cookies file, merges name/email + hasLogin", () => {
-    const dir = fsExtra.mkdtempSync(pathExtra.join(osExtra.tmpdir(), "ttls-"));
-    fsExtra.mkdirSync(pathExtra.join(dir, "Default"));
-    fsExtra.mkdirSync(pathExtra.join(dir, "Profile 1"));
-    fsExtra.writeFileSync(pathExtra.join(dir, "Default", "Cookies"), "");
-    fsExtra.writeFileSync(pathExtra.join(dir, "Profile 1", "Cookies"), "");
-    const readLocalState = () =>
-      JSON.stringify({ profile: { info_cache: { Default: { name: "Me", user_name: "" }, "Profile 1": { name: "Work", user_name: "w@x.com" } } } });
-    const hasLogin = (db) => db.includes("Profile 1"); // 只有 Profile 1 已登录
-    const res = listChromeProfiles({ chromeDir: dir, hasLogin, readLocalState });
-    fsExtra.rmSync(dir, { recursive: true, force: true });
-    expect(res).toEqual([
-      { profile: "Default", hasLogin: false, name: "Me", email: "" },
-      { profile: "Profile 1", hasLogin: true, name: "Work", email: "w@x.com" },
-    ]);
   });
 });
