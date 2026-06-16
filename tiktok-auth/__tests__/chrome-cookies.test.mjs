@@ -57,14 +57,7 @@ describe("rowToCookie mapping", () => {
   const key = deriveKey("test-password");
 
   test("maps sqlite row to puppeteer cookie and decrypts", () => {
-    const cipher = crypto.createCipheriv("aes-128-cbc", key, IV);
-    const enc = Buffer.concat([
-      Buffer.from("v10", "latin1"),
-      Buffer.concat([
-        cipher.update(Buffer.concat([crypto.randomBytes(32), Buffer.from("v")])),
-        cipher.final(),
-      ]),
-    ]);
+    const enc = makeEncrypted("v", key, { withDomainHash: true });
     const row = {
       name: "sessionid",
       domain: ".tiktok.com",
@@ -98,14 +91,7 @@ describe("rowToCookie mapping", () => {
   });
 
   test("includes expires for non-session cookies", () => {
-    const cipher = crypto.createCipheriv("aes-128-cbc", key, IV);
-    const enc = Buffer.concat([
-      Buffer.from("v10", "latin1"),
-      Buffer.concat([
-        cipher.update(Buffer.concat([crypto.randomBytes(32), Buffer.from("y")])),
-        cipher.final(),
-      ]),
-    ]);
+    const enc = makeEncrypted("y", key, { withDomainHash: true });
     const row = {
       name: "sid_guard",
       domain: ".tiktok.com",
