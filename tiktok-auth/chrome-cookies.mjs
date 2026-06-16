@@ -133,7 +133,7 @@ function readCookieRows(dbPath) {
 
 export function profileHasLogin(dbPath) {
   try {
-    const inList = SESSION_COOKIE_NAMES.map((n) => `'${n}'`).join(",");
+    const inList = SESSION_COOKIE_NAMES.map((n) => `'${n.replace(/'/g, "''")}'`).join(",");
     const rows = querySqlite(
       dbPath,
       `SELECT count(*) AS n FROM cookies WHERE host_key LIKE '%tiktok.com' AND name IN (${inList});`,
