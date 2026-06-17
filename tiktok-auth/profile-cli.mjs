@@ -222,7 +222,7 @@ function cmdImport(rest, deps) {
   return ok(`imported profile '${name}' (${parsed.cookies.length} cookies)${warn}`);
 }
 
-async function cmdPickStart(rest, deps) {
+async function cmdPickStart(_rest, deps) {
   const rows = deps.store.listProfiles();
   if (!rows.length) {
     return { code: 2, stdout: "", stderr: "no saved profiles; run `profile add` first" };
