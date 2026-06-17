@@ -115,6 +115,30 @@ describe("add / refresh", () => {
     const r = await run(["refresh", "work"], deps);
     expect(r.code).toBe(0);
   });
+
+  test("refresh without a session cookie keeps existing (no overwrite)", async () => {
+    const deps = depsWith({ getChromeTikTokCookies: async () => [{ name: "foo", domain: ".tiktok.com" }] });
+    deps.__saved.work = { cookies: [{ name: "sessionid", value: "old" }], meta: { origin: "chrome", sourceChromeProfile: "Default" } };
+    const r = await run(["refresh", "work"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/kept existing/i);
+    expect(deps.__saved.work.cookies).toEqual([{ name: "sessionid", value: "old" }]);
+  });
+
+  test("refresh --force overwrites even without a session cookie", async () => {
+    const deps = depsWith({ getChromeTikTokCookies: async () => [{ name: "foo", domain: ".tiktok.com" }] });
+    deps.__saved.work = { cookies: [{ name: "sessionid", value: "old" }], meta: { origin: "chrome", sourceChromeProfile: "Default" } };
+    const r = await run(["refresh", "work", "--force"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.work.cookies).toEqual([{ name: "foo", domain: ".tiktok.com" }]);
+  });
+
+  test("refresh treats sessionid_ss as a valid session (SESSION_COOKIE_NAMES)", async () => {
+    const deps = depsWith({ getChromeTikTokCookies: async () => [{ name: "sessionid_ss", domain: ".tiktok.com" }] });
+    deps.__saved.work = { cookies: [{ name: "sessionid" }], meta: { origin: "chrome", sourceChromeProfile: "Default" } };
+    const r = await run(["refresh", "work"], deps);
+    expect(r.code).toBe(0);
+  });
 });
 
 describe("rename / delete / backup / import / pick-start", () => {

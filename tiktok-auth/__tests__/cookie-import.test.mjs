@@ -44,4 +44,16 @@ describe("parseImportFile - safety", () => {
     parseImportFile(evil);
     expect({}.polluted).toBeUndefined();
   });
+  test("backup-path import drops dangerous + non-whitelisted own keys", () => {
+    const payload = JSON.stringify({
+      cookies: [{ name: "sessionid", domain: ".tiktok.com", constructor: "x", prototype: "y", evil: 1 }],
+      meta: { origin: "chrome", sourceChromeProfile: "Default", constructor: "z", evil: 2 },
+    });
+    const { cookies, meta } = parseImportFile(payload);
+    expect(Object.prototype.hasOwnProperty.call(cookies[0], "constructor")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(cookies[0], "prototype")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(cookies[0], "evil")).toBe(false);
+    expect(meta).toEqual({ origin: "chrome", sourceChromeProfile: "Default" });
+    expect({}.evil).toBeUndefined();
+  });
 });

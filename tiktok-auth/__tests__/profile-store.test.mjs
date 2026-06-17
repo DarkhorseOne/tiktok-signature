@@ -130,3 +130,47 @@ describe("delete / rename / backup", () => {
     expect(() => backupProfile("work", dest)).toThrow(/already exists/);
   });
 });
+
+describe("security guards", () => {
+  test("secureMkdir/secureWriteFile tighten pre-existing loose perms", () => {
+    const dir = path.join(home, "profiles", "loose");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.chmodSync(home, 0o777);
+    fs.chmodSync(path.join(home, "profiles"), 0o777);
+    fs.chmodSync(dir, 0o777);
+    writeProfile("loose", COOKIES, {});
+    const m = (p) => fs.statSync(p).mode & 0o777;
+    expect(m(home)).toBe(0o700);
+    expect(m(path.join(home, "profiles"))).toBe(0o700);
+    expect(m(dir)).toBe(0o700);
+    expect(m(path.join(dir, "cookies.json"))).toBe(0o600);
+  });
+
+  test("relative TIKTOK_SIG_AUTH_HOME is rejected", () => {
+    process.env.TIKTOK_SIG_AUTH_HOME = "relative/dir";
+    expect(() => writeProfile("x", COOKIES, {})).toThrow(/absolute/i);
+    process.env.TIKTOK_SIG_AUTH_HOME = home;
+  });
+
+  test("symlinked base dir is rejected", () => {
+    const real = fs.mkdtempSync(path.join(os.tmpdir(), "ttreal-"));
+    const link = path.join(os.tmpdir(), `ttlink-${process.pid}-${real.length}`);
+    fs.symlinkSync(real, link);
+    process.env.TIKTOK_SIG_AUTH_HOME = link;
+    expect(() => writeProfile("x", COOKIES, {})).toThrow(/symlink/i);
+    process.env.TIKTOK_SIG_AUTH_HOME = home;
+    fs.rmSync(link, { force: true });
+    fs.rmSync(real, { recursive: true, force: true });
+  });
+
+  test("deleteProfile refuses a symlinked profile dir; target survives", () => {
+    writeProfile("realone", COOKIES, {});
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "tttarget-"));
+    const linkProfile = path.join(home, "profiles", "linked");
+    fs.symlinkSync(target, linkProfile);
+    expect(() => deleteProfile("linked")).toThrow(/symlink/i);
+    expect(fs.existsSync(target)).toBe(true);
+    fs.rmSync(linkProfile, { force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  });
+});
