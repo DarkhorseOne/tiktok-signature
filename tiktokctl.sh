@@ -41,7 +41,7 @@ launch() { # $1=profile (may be empty -> legacy CHROME_PROFILE path)
   local prof="$1"
   if [ -n "${TIKTOKCTL_DRY_RUN:-}" ]; then
     if [ -n "$prof" ]; then
-      echo "DRY: nohup node --env-file-if-exists=.env $ENTRY --profile $prof"
+      echo "DRY: nohup node --env-file-if-exists=.env $ENTRY --profile \"$prof\""
     else
       echo "DRY: nohup node --env-file-if-exists=.env $ENTRY"
     fi
@@ -69,7 +69,7 @@ resolve_start_profile() { # echo chosen profile name, or empty for legacy; nonze
     if node "$CLI" exists "$arg" >/dev/null 2>&1; then echo "$arg"; return 0; fi
     echo "" ; return 9
   fi
-  if [ -t 0 ] && [ -t 1 ]; then
+  if [ -t 0 ]; then
     local picked
     picked="$(node "$CLI" pick-start)" || return $?
     [ -n "$picked" ] || return 9
@@ -118,6 +118,9 @@ stop() {
 restart() {
   local arg="${1:-}" target
   if [ -n "$arg" ]; then
+    if ! node "$CLI" exists "$arg" >/dev/null 2>&1; then
+      echo "restart: profile not found: $arg"; node "$CLI" list || true; return 2
+    fi
     target="$arg"
   elif is_running; then
     target="$(running_profile)"
