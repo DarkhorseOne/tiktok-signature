@@ -5,6 +5,7 @@ import readline from "readline";
 import * as store from "./profile-store.mjs";
 import { parseImportFile } from "./cookie-import.mjs";
 import { listChromeProfiles, getChromeTikTokCookies } from "./chrome-cookies.mjs";
+import { hasSessionCookie } from "./constants.mjs";
 
 const USAGE =
   "usage: profile-cli <list|chrome|add|refresh|rename|delete|backup|import|restore|exists|pick-start|ps-profile> [...]";
@@ -131,9 +132,9 @@ async function cmdRefresh(rest, deps) {
   if (!cookies || !cookies.length) {
     return userErr(`refresh: no cookies extracted from Chrome profile: ${meta.sourceChromeProfile} (kept existing session)`);
   }
-  const fresh = cookies && cookies.some((c) => c.name === "sessionid");
+  const fresh = hasSessionCookie(cookies);
   if (!fresh && !force) {
-    return userErr(`refresh got no sessionid for '${name}'; kept existing session (use --force to overwrite)`);
+    return userErr(`refresh got no session cookie for '${name}'; kept existing session (use --force to overwrite)`);
   }
   deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: meta.sourceChromeProfile });
   return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}' (${cookies.length} cookies)`);

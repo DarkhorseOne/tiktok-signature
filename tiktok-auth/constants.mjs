@@ -8,3 +8,16 @@ export function hasSessionCookie(cookies) {
     cookies.some((c) => c && SESSION_COOKIE_NAMES.includes(c.name))
   );
 }
+
+/** A Chrome profile dir name must be a single safe path segment (no separators / .. / NUL) */
+export function isSafeChromeProfileName(name) {
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0")
+  );
+}

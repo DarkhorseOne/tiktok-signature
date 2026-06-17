@@ -10,6 +10,9 @@ import { parseProfileArg } from "./tiktok-auth/parse-args.mjs";
 
 const profileArg = parseProfileArg(process.argv.slice(2));
 if (profileArg) process.env.TIKTOK_PROFILE = profileArg;
+if (profileArg && process.env.TIKTOK_AUTH_ENABLED !== "false") {
+  process.env.TIKTOK_AUTH_ENABLED = "true";
+}
 
 let installed = false;
 try {

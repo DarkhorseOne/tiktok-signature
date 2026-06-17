@@ -1,5 +1,13 @@
+import { isSafeChromeProfileName } from "./constants.mjs";
+
 const SAME_SITE = { no_restriction: "None", lax: "Lax", strict: "Strict" };
 const DANGER_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function isTikTokDomain(domain) {
+  if (typeof domain !== "string") return false;
+  const bare = domain.replace(/^\./, "");
+  return bare === "tiktok.com" || bare.endsWith(".tiktok.com");
+}
 
 function pick(obj, keys) {
   const out = {};
@@ -14,7 +22,7 @@ function pick(obj, keys) {
 function mapExtensionCookie(c) {
   if (!c || typeof c !== "object") return null;
   const domain = typeof c.domain === "string" ? c.domain : "";
-  if (!domain.endsWith("tiktok.com")) return null;
+  if (!isTikTokDomain(domain)) return null;
   const out = {
     name: String(c.name ?? ""),
     value: String(c.value ?? ""),
@@ -34,7 +42,7 @@ function mapExtensionCookie(c) {
 
 function sanitizeBackupCookie(c) {
   const o = pick(c, ["name", "value", "domain", "path", "secure", "httpOnly", "expires", "sameSite"]);
-  if (!o.name || !o.domain || !o.domain.endsWith("tiktok.com")) return null;
+  if (!o.name || !isTikTokDomain(o.domain)) return null;
   o.secure = !!o.secure;
   o.httpOnly = !!o.httpOnly;
   if (o.path == null) o.path = "/";
@@ -43,7 +51,11 @@ function sanitizeBackupCookie(c) {
 }
 
 function sanitizeMeta(m) {
-  return pick(m, ["origin", "sourceChromeProfile"]);
+  const out = pick(m, ["origin", "sourceChromeProfile"]);
+  if (out.sourceChromeProfile != null && !isSafeChromeProfileName(out.sourceChromeProfile)) {
+    out.sourceChromeProfile = null;
+  }
+  return out;
 }
 
 /**

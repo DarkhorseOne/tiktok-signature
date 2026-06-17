@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { SESSION_COOKIE_NAMES } from "./constants.mjs";
+import { SESSION_COOKIE_NAMES, isSafeChromeProfileName } from "./constants.mjs";
 
 const SALT = "saltysalt";
 const ITERATIONS = 1003; // macOS
@@ -127,7 +127,7 @@ function readCookieRows(dbPath) {
     dbPath,
     "SELECT name, host_key AS domain, path, is_secure AS secure, " +
       "is_httponly AS httpOnly, expires_utc AS expires, " +
-      "hex(encrypted_value) AS enc FROM cookies WHERE host_key LIKE '%tiktok.com';",
+      "hex(encrypted_value) AS enc FROM cookies WHERE (host_key = 'tiktok.com' OR host_key LIKE '%.tiktok.com');",
   );
 }
 
@@ -136,7 +136,7 @@ export function profileHasLogin(dbPath) {
     const inList = SESSION_COOKIE_NAMES.map((n) => `'${n.replace(/'/g, "''")}'`).join(",");
     const rows = querySqlite(
       dbPath,
-      `SELECT count(*) AS n FROM cookies WHERE host_key LIKE '%tiktok.com' AND name IN (${inList});`,
+      `SELECT count(*) AS n FROM cookies WHERE (host_key = 'tiktok.com' OR host_key LIKE '%.tiktok.com') AND name IN (${inList});`,
     );
     return rows.length ? Number(rows[0].n) > 0 : false;
   } catch (e) {
@@ -146,7 +146,16 @@ export function profileHasLogin(dbPath) {
 
 function resolveProfileDb(baseDir, requested) {
   if (requested && requested !== "auto") {
-    return path.join(baseDir, requested, "Cookies");
+    if (!isSafeChromeProfileName(requested)) {
+      throw new Error(`invalid chrome profile name: ${requested}`);
+    }
+    const dir = path.join(baseDir, requested);
+    const base = path.resolve(baseDir);
+    const resolved = path.resolve(dir);
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      throw new Error(`chrome profile escapes base: ${requested}`);
+    }
+    return path.join(dir, "Cookies");
   }
   const candidates = ["Default"];
   for (let i = 1; i <= 20; i++) candidates.push(`Profile ${i}`);
