@@ -1,5 +1,5 @@
 import fs from "fs";
-import { installAuthHook } from "../index.mjs";
+import { installAuthHook, getConfiguredCookies } from "../index.mjs";
 
 // 构造一个假的 puppeteer 单例：launch 返回带 newPage 的假 browser
 function makeFakePuppeteer(events) {
@@ -62,6 +62,52 @@ describe("installAuthHook", () => {
     const page = await browser.newPage();
     expect(page).toBeDefined();
     expect(events).toEqual([["launch"], ["newPage"]]);
+  });
+});
+
+describe("hook calls getCookies with NO args (signature-collision guard)", () => {
+  test("getCookies invoked with zero arguments", async () => {
+    const events = [];
+    const pptr = makeFakePuppeteer(events);
+    let argsSeen = "unset";
+    await installAuthHook(pptr, {
+      enabled: true,
+      getCookies: async (...a) => {
+        argsSeen = a;
+        return [];
+      },
+    });
+    const b = await pptr.launch();
+    await b.newPage();
+    expect(argsSeen).toEqual([]);
+  });
+});
+
+describe("getConfiguredCookies dispatch", () => {
+  afterEach(() => {
+    delete process.env.TIKTOK_PROFILE;
+    delete process.env.CHROME_PROFILE;
+  });
+  test("uses store loader when TIKTOK_PROFILE set", async () => {
+    process.env.TIKTOK_PROFILE = "work";
+    const calls = [];
+    const deps = {
+      loadProfileCookies: async (n) => { calls.push(["store", n]); return [{ name: "sessionid" }]; },
+      getChromeTikTokCookies: async (o) => { calls.push(["chrome", o]); return []; },
+    };
+    const r = await getConfiguredCookies(deps);
+    expect(calls).toEqual([["store", "work"]]);
+    expect(r).toEqual([{ name: "sessionid" }]);
+  });
+  test("falls back to chrome live when TIKTOK_PROFILE unset", async () => {
+    process.env.CHROME_PROFILE = "Profile 1";
+    const calls = [];
+    const deps = {
+      loadProfileCookies: async () => { calls.push("store"); return []; },
+      getChromeTikTokCookies: async (o) => { calls.push(["chrome", o]); return []; },
+    };
+    await getConfiguredCookies(deps);
+    expect(calls).toEqual([["chrome", { profile: "Profile 1" }]]);
   });
 });
 

@@ -3,6 +3,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { SESSION_COOKIE_NAMES, isSafeChromeProfileName } from "./constants.mjs";
 
 const SALT = "saltysalt";
 const ITERATIONS = 1003; // macOS
@@ -126,16 +127,16 @@ function readCookieRows(dbPath) {
     dbPath,
     "SELECT name, host_key AS domain, path, is_secure AS secure, " +
       "is_httponly AS httpOnly, expires_utc AS expires, " +
-      "hex(encrypted_value) AS enc FROM cookies WHERE host_key LIKE '%tiktok.com';",
+      "hex(encrypted_value) AS enc FROM cookies WHERE (host_key = 'tiktok.com' OR host_key LIKE '%.tiktok.com');",
   );
 }
 
-function profileHasLogin(dbPath) {
+export function profileHasLogin(dbPath) {
   try {
+    const inList = SESSION_COOKIE_NAMES.map((n) => `'${n.replace(/'/g, "''")}'`).join(",");
     const rows = querySqlite(
       dbPath,
-      "SELECT count(*) AS n FROM cookies WHERE host_key LIKE '%tiktok.com' " +
-        "AND name IN ('sessionid','sessionid_ss','sid_guard');",
+      `SELECT count(*) AS n FROM cookies WHERE (host_key = 'tiktok.com' OR host_key LIKE '%.tiktok.com') AND name IN (${inList});`,
     );
     return rows.length ? Number(rows[0].n) > 0 : false;
   } catch (e) {
@@ -145,7 +146,16 @@ function profileHasLogin(dbPath) {
 
 function resolveProfileDb(baseDir, requested) {
   if (requested && requested !== "auto") {
-    return path.join(baseDir, requested, "Cookies");
+    if (!isSafeChromeProfileName(requested)) {
+      throw new Error(`invalid chrome profile name: ${requested}`);
+    }
+    const dir = path.join(baseDir, requested);
+    const base = path.resolve(baseDir);
+    const resolved = path.resolve(dir);
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      throw new Error(`chrome profile escapes base: ${requested}`);
+    }
+    return path.join(dir, "Cookies");
   }
   const candidates = ["Default"];
   for (let i = 1; i <= 20; i++) candidates.push(`Profile ${i}`);
@@ -180,4 +190,74 @@ export async function getChromeTikTokCookies({ profile, chromeDir } = {}) {
     console.warn(`[auth] 读取 Chrome cookie 失败，回退匿名: ${e.message}`);
     return [];
   }
+}
+
+/** 解析 Chrome `Local State` JSON 的 profile.info_cache -> { "<dir>": { name, email } }；坏 JSON -> {} */
+export function parseLocalStateNames(content) {
+  try {
+    const j = JSON.parse(content);
+    const cache = (j && j.profile && j.profile.info_cache) || {};
+    const out = {};
+    for (const [dir, info] of Object.entries(cache)) {
+      out[dir] = {
+        name: (info && info.name) || "",
+        email: (info && info.user_name) || "",
+      };
+    }
+    return out;
+  } catch (e) {
+    return {};
+  }
+}
+
+function defaultReadLocalState(chromeDir) {
+  try {
+    return fs.readFileSync(path.join(chromeDir, "Local State"), "utf8");
+  } catch (e) {
+    return "";
+  }
+}
+
+/**
+ * 列出本机 Chrome profile（用于 add 选源 / profile chrome）。
+ * 从 Local State 枚举真实 profile 目录（与存在 Cookies 的目录取交集），
+ * Local State 不可读时回退扫描 Default + Profile* 目录。探针可注入便于测试。
+ */
+export function listChromeProfiles({
+  chromeDir = chromeBaseDir(),
+  hasLogin = profileHasLogin,
+  readLocalState = defaultReadLocalState,
+} = {}) {
+  const names = parseLocalStateNames(readLocalState(chromeDir));
+  let dirs = Object.keys(names).filter((d) =>
+    fs.existsSync(path.join(chromeDir, d, "Cookies")),
+  );
+  if (!dirs.length) {
+    try {
+      dirs = fs
+        .readdirSync(chromeDir, { withFileTypes: true })
+        .filter(
+          (e) =>
+            e.isDirectory() &&
+            (e.name === "Default" || e.name.startsWith("Profile ")),
+        )
+        .map((e) => e.name)
+        .filter((d) => fs.existsSync(path.join(chromeDir, d, "Cookies")));
+    } catch (e) {
+      dirs = [];
+    }
+  }
+  const out = [];
+  for (const d of dirs) {
+    try {
+      out.push({
+        profile: d,
+        hasLogin: hasLogin(path.join(chromeDir, d, "Cookies")),
+        name: (names[d] && names[d].name) || "",
+        email: (names[d] && names[d].email) || "",
+      });
+    } catch (e) {}
+  }
+  out.sort((a, b) => a.profile.localeCompare(b.profile));
+  return out;
 }
