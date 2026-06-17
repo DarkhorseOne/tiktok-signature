@@ -127,6 +127,9 @@ async function cmdRefresh(rest, deps) {
     return userErr(`profile '${name}' has no Chrome source to refresh from (imported)`);
   }
   const cookies = await deps.getChromeTikTokCookies({ profile: meta.sourceChromeProfile });
+  if (!cookies || !cookies.length) {
+    return userErr(`refresh: no cookies extracted from Chrome profile: ${meta.sourceChromeProfile} (kept existing session)`);
+  }
   const fresh = cookies && cookies.some((c) => c.name === "sessionid");
   if (!fresh && !force) {
     return userErr(`refresh got no sessionid for '${name}'; kept existing session (use --force to overwrite)`);
