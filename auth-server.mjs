@@ -6,6 +6,10 @@
  */
 import puppeteer from "puppeteer-extra";
 import { installAuthHook } from "./tiktok-auth/index.mjs";
+import { parseProfileArg } from "./tiktok-auth/parse-args.mjs";
+
+const profileArg = parseProfileArg(process.argv.slice(2));
+if (profileArg) process.env.TIKTOK_PROFILE = profileArg;
 
 let installed = false;
 try {
