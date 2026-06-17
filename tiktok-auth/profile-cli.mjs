@@ -3,8 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import * as store from "./profile-store.mjs";
 import { parseImportFile } from "./cookie-import.mjs";
-import { listChromeProfiles } from "./chrome-cookies.mjs";
-import { getChromeTikTokCookies } from "./chrome-cookies.mjs";
+import { listChromeProfiles, getChromeTikTokCookies } from "./chrome-cookies.mjs";
 
 const USAGE =
   "usage: profile-cli <list|chrome|add|refresh|rename|delete|backup|import|restore|exists|pick-start|ps-profile> [...]";
@@ -74,12 +73,76 @@ function cmdPsProfile(rest) {
   return ok(name);
 }
 
+async function cmdAdd(rest, deps) {
+  let name = positionals(rest)[0];
+  let from = flagVal(rest, "--from");
+  const force = hasFlag(rest, "--force");
+  if ((!name || !from) && deps.isTTY) {
+    const picked = await interactiveAdd(deps);
+    if (!picked) return userErr("add: cancelled");
+    name = name || picked.name;
+    from = from || picked.from;
+  }
+  if (!name) return userErr("add: name required");
+  if (!from) return userErr("add: --from <chromeProfile> required");
+  if (deps.store.profileExists(name) && !force) {
+    return userErr(`profile already exists: ${name} (use --force or refresh)`);
+  }
+  const available = deps.listChromeProfiles();
+  if (!available.some((p) => p.profile === from)) {
+    return userErr(`Chrome profile not found / no Cookies: ${from}`);
+  }
+  const cookies = await deps.getChromeTikTokCookies({ profile: from });
+  if (!cookies || !cookies.length) {
+    return userErr(`no cookies extracted from Chrome profile: ${from}`);
+  }
+  const meta = deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: from });
+  const warn = meta.hasSession ? "" : "\n[warn] 提取结果不含 sessionid（该 Chrome profile 可能未登录）";
+  return ok(`saved profile '${name}' from Chrome '${from}' (${cookies.length} cookies)${warn}`);
+}
+
+async function interactiveAdd(deps) {
+  const rows = deps.listChromeProfiles();
+  if (!rows.length) return null;
+  const lines = rows.map((p, i) => `${i + 1}) ${p.profile}  ${p.name}${p.email ? " (" + p.email + ")" : ""}  ${p.hasLogin ? "✅" : "—"}`);
+  const sel = await deps.prompt(`选择要提取的 Chrome profile:\n${lines.join("\n")}\n序号: `);
+  const idx = Number(sel) - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= rows.length) return null;
+  const name = (await deps.prompt("给这个账号起个名字: ")).trim();
+  if (!name) return null;
+  return { name, from: rows[idx].profile };
+}
+
+async function cmdRefresh(rest, deps) {
+  const name = positionals(rest)[0];
+  const force = hasFlag(rest, "--force");
+  if (!name) return userErr("refresh: name required");
+  let meta;
+  try {
+    meta = deps.store.readProfile(name).meta;
+  } catch (e) {
+    return userErr(`profile not found: ${name}`);
+  }
+  if (!meta.sourceChromeProfile) {
+    return userErr(`profile '${name}' has no Chrome source to refresh from (imported)`);
+  }
+  const cookies = await deps.getChromeTikTokCookies({ profile: meta.sourceChromeProfile });
+  const fresh = cookies && cookies.some((c) => c.name === "sessionid");
+  if (!fresh && !force) {
+    return userErr(`refresh got no sessionid for '${name}'; kept existing session (use --force to overwrite)`);
+  }
+  deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: meta.sourceChromeProfile });
+  return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}' (${cookies.length} cookies)`);
+}
+
 export async function run(argv, deps) {
   const [cmd, ...rest] = argv;
   try {
     switch (cmd) {
       case "list": return cmdList(rest, deps);
       case "chrome": return cmdChrome(rest, deps);
+      case "add": return await cmdAdd(rest, deps);
+      case "refresh": return await cmdRefresh(rest, deps);
       case "exists": return cmdExists(rest, deps);
       case "ps-profile": return cmdPsProfile(rest);
       default: return { code: 2, stdout: "", stderr: USAGE };

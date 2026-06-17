@@ -61,3 +61,58 @@ describe("run routing", () => {
     expect(r2.stdout).toBe("");
   });
 });
+
+describe("add / refresh", () => {
+  function depsWith(over) {
+    const saved = {};
+    const base = makeDeps({
+      store: {
+        profileExists: (n) => Object.prototype.hasOwnProperty.call(saved, n),
+        writeProfile: (n, cookies, meta) => { saved[n] = { cookies, meta }; return { name: n, ...meta }; },
+        readProfile: (n) => { if (!saved[n]) throw new Error(`profile not found: ${n}`); return { meta: { name: n, ...saved[n].meta }, cookies: saved[n].cookies }; },
+      },
+      listChromeProfiles: () => [{ profile: "Profile 1" }, { profile: "Default" }],
+      getChromeTikTokCookies: async () => [{ name: "sessionid", value: "s", domain: ".tiktok.com" }],
+      ...over,
+    });
+    base.__saved = saved;
+    return base;
+  }
+
+  test("add <name> --from <chrome> extracts + saves", async () => {
+    const deps = depsWith();
+    const r = await run(["add", "work", "--from", "Profile 1"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.work.meta).toMatchObject({ origin: "chrome", sourceChromeProfile: "Profile 1" });
+    expect(deps.__saved.work.cookies[0].name).toBe("sessionid");
+  });
+
+  test("add existing name without --force -> 2", async () => {
+    const deps = depsWith();
+    await run(["add", "work", "--from", "Default"], deps);
+    const r = await run(["add", "work", "--from", "Default"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/exists/i);
+  });
+
+  test("add --from with no extracted cookies -> 2", async () => {
+    const deps = depsWith({ getChromeTikTokCookies: async () => [] });
+    const r = await run(["add", "work", "--from", "Default"], deps);
+    expect(r.code).toBe(2);
+  });
+
+  test("refresh imported (no source) -> 2", async () => {
+    const deps = depsWith();
+    deps.__saved.imp = { cookies: [], meta: { origin: "imported", sourceChromeProfile: null } };
+    const r = await run(["refresh", "imp"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/source/i);
+  });
+
+  test("refresh re-extracts from source", async () => {
+    const deps = depsWith();
+    await run(["add", "work", "--from", "Profile 1"], deps);
+    const r = await run(["refresh", "work"], deps);
+    expect(r.code).toBe(0);
+  });
+});
