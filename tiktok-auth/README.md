@@ -44,3 +44,32 @@
 
 本组件全部为新增文件（`auth-server.mjs`、`tiktokctl.sh`、`tiktok-auth/`）。
 直接 `git pull` / `git rebase` 上游，不会与这些文件冲突。
+
+## 多账号管理（profile）
+
+每个 TikTok 账号对应一个 Chrome profile。把账号会话提取并持久化到 `~/.tiktok-sig-auth/`（仓库外，文件 0600），启动时选择加载哪个。
+
+```bash
+# 列出本机 Chrome profile（看哪个登录了 TikTok）
+./tiktokctl.sh profile chrome
+
+# 提取保存一个账号（交互选 Chrome profile + 起名；或直接指定）
+./tiktokctl.sh profile add work --from "Profile 1"
+
+# 管理
+./tiktokctl.sh profile list
+./tiktokctl.sh profile refresh work       # 从来源 Chrome profile 重新提取（弹钥匙串）
+./tiktokctl.sh profile rename work work2
+./tiktokctl.sh profile delete work
+./tiktokctl.sh profile backup work [路径]  # 导出单文件（默认 ~/.tiktok-sig-auth/backups/）
+./tiktokctl.sh profile import <文件> [名字] # 导入：本工具备份 或 扩展导出的 JSON
+
+# 启动指定账号（不带名字则弹菜单选）
+./tiktokctl.sh start work
+./tiktokctl.sh restart play   # 切换账号
+./tiktokctl.sh status         # 显示当前账号
+```
+
+注入源：设了账号（`--profile`/菜单）走持久化存储；否则回退到 `.env` 的 `CHROME_PROFILE` 实时模式。
+
+⚠️ 保存的会话与备份文件含 `sessionid`（账号完全访问权限），权限 0600、存仓库外，**勿外传、勿放入同步盘/仓库**。
