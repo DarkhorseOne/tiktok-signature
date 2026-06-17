@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import readline from "readline";
 import * as store from "./profile-store.mjs";
 import { parseImportFile } from "./cookie-import.mjs";
 import { listChromeProfiles, getChromeTikTokCookies } from "./chrome-cookies.mjs";
@@ -138,6 +139,106 @@ async function cmdRefresh(rest, deps) {
   return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}' (${cookies.length} cookies)`);
 }
 
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+
+function cmdRename(rest, deps) {
+  const [oldName, newName] = positionals(rest);
+  if (!oldName || !newName) return userErr("rename: <old> <new> required");
+  try {
+    deps.store.renameProfile(oldName, newName);
+  } catch (e) {
+    return userErr(e.message);
+  }
+  return ok(`renamed '${oldName}' -> '${newName}'`);
+}
+
+async function cmdDelete(rest, deps) {
+  const name = positionals(rest)[0];
+  if (!name) return userErr("delete: name required");
+  if (!deps.store.profileExists(name)) return userErr(`profile not found: ${name}`);
+  if (deps.isTTY && !hasFlag(rest, "--yes")) {
+    const yn = (await deps.prompt(`确认删除 '${name}'? [y/N] `)).trim().toLowerCase();
+    if (yn !== "y" && yn !== "yes") return ok("cancelled");
+  }
+  try {
+    deps.store.deleteProfile(name);
+  } catch (e) {
+    return userErr(e.message);
+  }
+  return ok(`deleted '${name}'`);
+}
+
+function cmdBackup(rest, deps) {
+  const [name, dest] = positionals(rest);
+  if (!name) return userErr("backup: name required");
+  let out;
+  try {
+    out = deps.store.backupProfile(name, dest);
+  } catch (e) {
+    return userErr(e.message);
+  }
+  const warn = insideGitTree(out) ? "\n[warn] 备份落在 git 工作树内，注意勿提交（含凭据）" : "";
+  return ok(`backed up '${name}' -> ${out}${warn}`);
+}
+
+function insideGitTree(p) {
+  let d = path.dirname(path.resolve(p));
+  for (let i = 0; i < 50; i++) {
+    if (fs.existsSync(path.join(d, ".git"))) return true;
+    const parent = path.dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return false;
+}
+
+function cmdImport(rest, deps) {
+  const [file, nameArg] = positionals(rest);
+  const force = hasFlag(rest, "--force");
+  if (!file) return userErr("import: <file> required");
+  let size;
+  try {
+    size = deps.statFile(file).size;
+  } catch (e) {
+    return userErr(`cannot read import file: ${file}`);
+  }
+  if (size > MAX_IMPORT_BYTES) return userErr(`import file too large (> ${MAX_IMPORT_BYTES} bytes)`);
+  let parsed;
+  try {
+    parsed = deps.importer.parseImportFile(deps.readFile(file));
+  } catch (e) {
+    return userErr(e.message);
+  }
+  const name = nameArg || (parsed.meta && parsed.meta.name);
+  if (!name) return userErr("import: name required for this file (extension export has no name)");
+  if (deps.store.profileExists(name) && !force) {
+    return userErr(`profile already exists: ${name} (use --force)`);
+  }
+  const metaIn = parsed.meta
+    ? { origin: parsed.meta.origin || "imported", sourceChromeProfile: parsed.meta.sourceChromeProfile ?? null }
+    : { origin: "imported", sourceChromeProfile: null };
+  const meta = deps.store.writeProfile(name, parsed.cookies, metaIn);
+  const warn = meta.hasSession ? "" : "\n[warn] 导入内容不含 sessionid";
+  return ok(`imported profile '${name}' (${parsed.cookies.length} cookies)${warn}`);
+}
+
+async function cmdPickStart(rest, deps) {
+  const rows = deps.store.listProfiles();
+  if (!rows.length) {
+    return { code: 2, stdout: "", stderr: "no saved profiles; run `profile add` first" };
+  }
+  if (!deps.isTTY) {
+    return { code: 2, stdout: "", stderr: "no TTY for interactive selection; pass a profile name to start" };
+  }
+  const lines = rows.map((p, i) => `${i + 1}) ${p.name}  [${p.meta.origin}]  ${p.meta.hasSession ? "✅" : "❌"}  ${p.meta.refreshedAt}`);
+  const sel = await deps.prompt(`选择要启动的账号:\n${lines.join("\n")}\n序号: `);
+  const idx = Number(sel) - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= rows.length) {
+    return { code: 2, stdout: "", stderr: "cancelled / invalid selection" };
+  }
+  return { code: 0, stdout: rows[idx].name, stderr: "" };
+}
+
 export async function run(argv, deps) {
   const [cmd, ...rest] = argv;
   try {
@@ -146,6 +247,12 @@ export async function run(argv, deps) {
       case "chrome": return cmdChrome(rest, deps);
       case "add": return await cmdAdd(rest, deps);
       case "refresh": return await cmdRefresh(rest, deps);
+      case "rename": return cmdRename(rest, deps);
+      case "delete": return await cmdDelete(rest, deps);
+      case "backup": return cmdBackup(rest, deps);
+      case "import":
+      case "restore": return cmdImport(rest, deps);
+      case "pick-start": return await cmdPickStart(rest, deps);
       case "exists": return cmdExists(rest, deps);
       case "ps-profile": return cmdPsProfile(rest);
       default: return { code: 2, stdout: "", stderr: USAGE };
@@ -155,6 +262,16 @@ export async function run(argv, deps) {
   }
 }
 
+function realPrompt(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    rl.question(question, (ans) => {
+      rl.close();
+      resolve(ans);
+    });
+  });
+}
+
 function makeRealDeps() {
   return {
     store,
@@ -162,7 +279,7 @@ function makeRealDeps() {
     listChromeProfiles,
     getChromeTikTokCookies,
     isTTY: !!process.stdin.isTTY,
-    prompt: async () => "",
+    prompt: realPrompt,
     readFile: (p) => fs.readFileSync(p, "utf8"),
     statFile: (p) => fs.statSync(p),
   };
