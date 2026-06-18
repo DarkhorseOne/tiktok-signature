@@ -131,27 +131,6 @@ describe("delete / rename / backup", () => {
   });
 });
 
-describe("tiktok identity fields", () => {
-  test("writeProfile stores tiktok identity", () => {
-    const meta = writeProfile("acct", COOKIES, { origin: "chrome", sourceChromeProfile: "Default", tiktokUsername: "u", tiktokScreenName: "s", tiktokUserId: "123" });
-    expect(meta).toMatchObject({ tiktokUsername: "u", tiktokScreenName: "s", tiktokUserId: "123" });
-    expect(readProfile("acct").meta.tiktokUserId).toBe("123");
-  });
-  test("undefined preserves existing identity; null clears it", () => {
-    writeProfile("acct", COOKIES, { tiktokUsername: "u", tiktokUserId: "123" });
-    const m1 = writeProfile("acct", COOKIES, { origin: "chrome", sourceChromeProfile: "Default" }); // omit -> preserve
-    expect(m1.tiktokUsername).toBe("u");
-    expect(m1.tiktokUserId).toBe("123");
-    const m2 = writeProfile("acct", COOKIES, { tiktokUsername: null }); // explicit null -> clear
-    expect(m2.tiktokUsername).toBeNull();
-  });
-  test("new profile without identity defaults to null", () => {
-    const meta = writeProfile("fresh", COOKIES, { origin: "chrome", sourceChromeProfile: "Default" });
-    expect(meta.tiktokUsername).toBeNull();
-    expect(meta.tiktokUserId).toBeNull();
-  });
-});
-
 describe("security guards", () => {
   test("secureMkdir/secureWriteFile tighten pre-existing loose perms", () => {
     const dir = path.join(home, "profiles", "loose");

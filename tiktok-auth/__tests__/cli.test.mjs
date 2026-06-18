@@ -12,6 +12,8 @@ function makeDeps(over = {}) {
     prompt: async () => "",
     readFile: () => "",
     statFile: () => ({ size: 0 }),
+    getChromeTikTokCookies: async () => [],
+    fetchIdentity: async () => null,
     ...over,
   };
 }
@@ -138,6 +140,64 @@ describe("add / refresh", () => {
     deps.__saved.work = { cookies: [{ name: "sessionid" }], meta: { origin: "chrome", sourceChromeProfile: "Default" } };
     const r = await run(["refresh", "work"], deps);
     expect(r.code).toBe(0);
+  });
+});
+
+describe("add auto-detect + identity", () => {
+  function addDeps(over) {
+    const saved = {};
+    const deps = makeDeps({
+      store: {
+        profileExists: (n) => Object.prototype.hasOwnProperty.call(saved, n),
+        writeProfile: (n, cookies, meta) => { saved[n] = { cookies, meta }; return { name: n, ...meta, hasSession: true }; },
+      },
+      getChromeTikTokCookies: async () => [{ name: "sessionid", domain: ".tiktok.com" }],
+      ...over,
+    });
+    deps.__saved = saved;
+    return deps;
+  }
+
+  test("auto-uses the single logged-in Chrome profile and names by @username", async () => {
+    const deps = addDeps({
+      listChromeProfiles: () => [{ profile: "Default", hasLogin: true }, { profile: "Profile 1", hasLogin: false }],
+      fetchIdentity: async () => ({ username: "nickma2026", screenName: "马剑873", userId: "765" }),
+    });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.nickma2026).toBeDefined();
+    expect(deps.__saved.nickma2026.meta).toMatchObject({ sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokUserId: "765" });
+  });
+
+  test("errors when no Chrome profile is logged into TikTok", async () => {
+    const deps = addDeps({ listChromeProfiles: () => [{ profile: "Default", hasLogin: false }] });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/没有已登录|logged/i);
+  });
+
+  test("multiple logged-in + non-TTY requires --from", async () => {
+    const deps = addDeps({ isTTY: false, listChromeProfiles: () => [{ profile: "Default", hasLogin: true }, { profile: "Profile 1", hasLogin: true }] });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/--from/);
+  });
+
+  test("no name + identity capture fails + non-TTY -> error", async () => {
+    const deps = addDeps({ isTTY: false, listChromeProfiles: () => [{ profile: "Default", hasLogin: true }], fetchIdentity: async () => null });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/name required/i);
+  });
+
+  test("explicit name overrides @username but identity is still stored", async () => {
+    const deps = addDeps({
+      listChromeProfiles: () => [{ profile: "Default", hasLogin: true }],
+      fetchIdentity: async () => ({ username: "nickma2026", screenName: "x", userId: "765" }),
+    });
+    const r = await run(["add", "work"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.work.meta).toMatchObject({ tiktokUsername: "nickma2026", tiktokUserId: "765" });
   });
 });
 
