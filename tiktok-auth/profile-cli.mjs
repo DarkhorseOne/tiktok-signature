@@ -6,6 +6,7 @@ import * as store from "./profile-store.mjs";
 import { parseImportFile } from "./cookie-import.mjs";
 import { listChromeProfiles, getChromeTikTokCookies } from "./chrome-cookies.mjs";
 import { hasSessionCookie } from "./constants.mjs";
+import { fetchTikTokIdentity } from "./account-info.mjs";
 
 const USAGE =
   "usage: profile-cli <list|chrome|add|refresh|rename|delete|backup|import|restore|exists|pick-start|ps-profile> [...]";
@@ -29,13 +30,26 @@ function flagVal(rest, name) {
   return i >= 0 ? rest[i + 1] : undefined;
 }
 
+function profileLabel(meta) {
+  return meta.tiktokUsername
+    ? `@${meta.tiktokUsername}${meta.tiktokScreenName ? " (" + meta.tiktokScreenName + ")" : ""}`
+    : "(no @username)";
+}
+
 function cmdList(rest, deps) {
   const rows = deps.store.listProfiles();
   if (hasFlag(rest, "--porcelain")) {
     return ok(
       rows
         .map((p) =>
-          [p.name, p.meta.origin, p.meta.sourceChromeProfile || "", p.meta.refreshedAt, String(!!p.meta.hasSession)].join("\t"),
+          [
+            p.name,
+            p.meta.origin,
+            p.meta.sourceChromeProfile || "",
+            p.meta.tiktokUsername || "",
+            p.meta.refreshedAt,
+            String(!!p.meta.hasSession),
+          ].join("\t"),
         )
         .map((l) => l + "\n")
         .join(""),
@@ -44,7 +58,10 @@ function cmdList(rest, deps) {
   if (!rows.length) return ok("(no saved profiles; run `profile add`)");
   return ok(
     rows
-      .map((p) => `${p.name}\t[${p.meta.origin}${p.meta.sourceChromeProfile ? " " + p.meta.sourceChromeProfile : ""}]\t${p.meta.refreshedAt}\t${p.meta.hasSession ? "✅" : "❌"}`)
+      .map(
+        (p) =>
+          `${p.name}\t${profileLabel(p.meta)}\t[${p.meta.origin}${p.meta.sourceChromeProfile ? " " + p.meta.sourceChromeProfile : ""}]\t${p.meta.refreshedAt}\t${p.meta.hasSession ? "✅" : "❌"}`,
+      )
       .join("\n"),
   );
 }
@@ -79,40 +96,66 @@ async function cmdAdd(rest, deps) {
   let name = positionals(rest)[0];
   let from = flagVal(rest, "--from");
   const force = hasFlag(rest, "--force");
-  if ((!name || !from) && deps.isTTY) {
-    const picked = await interactiveAdd(deps);
-    if (!picked) return userErr("add: cancelled");
-    name = name || picked.name;
-    from = from || picked.from;
+
+  // Resolve source Chrome profile: explicit --from, else auto-detect logged-in ones.
+  if (from) {
+    if (!deps.listChromeProfiles().some((p) => p.profile === from)) {
+      return userErr(`Chrome profile not found / no Cookies: ${from}`);
+    }
+  } else {
+    const loggedIn = deps.listChromeProfiles().filter((p) => p.hasLogin);
+    if (loggedIn.length === 0) {
+      return userErr("Chrome 里没有已登录 TikTok 的会话；请先在 Chrome 登录 TikTok");
+    } else if (loggedIn.length === 1) {
+      from = loggedIn[0].profile;
+    } else if (deps.isTTY) {
+      from = await pickChromeProfile(loggedIn, deps);
+      if (!from) return userErr("add: cancelled");
+    } else {
+      return userErr("multiple logged-in Chrome profiles; pass --from <profile>");
+    }
   }
-  if (!name) return userErr("add: name required");
-  if (!from) return userErr("add: --from <chromeProfile> required");
-  if (deps.store.profileExists(name) && !force) {
-    return userErr(`profile already exists: ${name} (use --force or refresh)`);
-  }
-  const available = deps.listChromeProfiles();
-  if (!available.some((p) => p.profile === from)) {
-    return userErr(`Chrome profile not found / no Cookies: ${from}`);
-  }
+
   const cookies = await deps.getChromeTikTokCookies({ profile: from });
   if (!cookies || !cookies.length) {
     return userErr(`no cookies extracted from Chrome profile: ${from}`);
   }
-  const meta = deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: from });
-  const warn = meta.hasSession ? "" : "\n[warn] 提取结果不含 sessionid（该 Chrome profile 可能未登录）";
-  return ok(`saved profile '${name}' from Chrome '${from}' (${cookies.length} cookies)${warn}`);
+
+  const id = await deps.fetchIdentity(cookies);
+
+  if (!name) {
+    if (id && id.username) name = id.username;
+    else if (deps.isTTY) name = (await deps.prompt("给这个账号起个名字: ")).trim();
+    if (!name) return userErr("add: name required (could not capture TikTok username)");
+  }
+
+  if (deps.store.profileExists(name) && !force) {
+    return userErr(`profile already exists: ${name} (use --force or refresh)`);
+  }
+
+  let meta;
+  try {
+    meta = deps.store.writeProfile(name, cookies, {
+      origin: "chrome",
+      sourceChromeProfile: from,
+      tiktokUsername: id ? id.username : null,
+      tiktokScreenName: id ? id.screenName : null,
+      tiktokUserId: id ? id.userId : null,
+    });
+  } catch (e) {
+    return userErr(e.message);
+  }
+  const who = id ? ` (@${id.username}${id.screenName ? " / " + id.screenName : ""})` : " (TikTok 用户名未获取)";
+  const warn = meta.hasSession ? "" : "\n[warn] 提取结果不含 sessionid";
+  return ok(`saved profile '${name}' from Chrome '${from}'${who} (${cookies.length} cookies)${warn}`);
 }
 
-async function interactiveAdd(deps) {
-  const rows = deps.listChromeProfiles();
-  if (!rows.length) return null;
-  const lines = rows.map((p, i) => `${i + 1}) ${p.profile}  ${p.name}${p.email ? " (" + p.email + ")" : ""}  ${p.hasLogin ? "✅" : "—"}`);
-  const sel = await deps.prompt(`选择要提取的 Chrome profile:\n${lines.join("\n")}\n序号: `);
+async function pickChromeProfile(rows, deps) {
+  const lines = rows.map((p, i) => `${i + 1}) ${p.profile}  ${p.name || ""}${p.email ? " (" + p.email + ")" : ""}`);
+  const sel = await deps.prompt(`多个已登录 TikTok 的 Chrome profile，选一个:\n${lines.join("\n")}\n序号: `);
   const idx = Number(sel) - 1;
   if (!Number.isInteger(idx) || idx < 0 || idx >= rows.length) return null;
-  const name = (await deps.prompt("给这个账号起个名字: ")).trim();
-  if (!name) return null;
-  return { name, from: rows[idx].profile };
+  return rows[idx].profile;
 }
 
 async function cmdRefresh(rest, deps) {
@@ -132,12 +175,27 @@ async function cmdRefresh(rest, deps) {
   if (!cookies || !cookies.length) {
     return userErr(`refresh: no cookies extracted from Chrome profile: ${meta.sourceChromeProfile} (kept existing session)`);
   }
-  const fresh = hasSessionCookie(cookies);
-  if (!fresh && !force) {
+  if (!hasSessionCookie(cookies) && !force) {
     return userErr(`refresh got no session cookie for '${name}'; kept existing session (use --force to overwrite)`);
   }
-  deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: meta.sourceChromeProfile });
-  return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}' (${cookies.length} cookies)`);
+  const id = await deps.fetchIdentity(cookies);
+  const accountChanged =
+    id &&
+    ((meta.tiktokUserId && id.userId && id.userId !== meta.tiktokUserId) ||
+      (meta.tiktokUsername && id.username && id.username !== meta.tiktokUsername));
+  if (accountChanged && !force) {
+    return userErr(
+      `refresh would replace @${meta.tiktokUsername || meta.tiktokUserId} with @${id.username}; the active TikTok account in Chrome changed. Switch back or use --force.`,
+    );
+  }
+  deps.store.writeProfile(name, cookies, {
+    origin: "chrome",
+    sourceChromeProfile: meta.sourceChromeProfile,
+    tiktokUsername: id ? id.username : undefined,
+    tiktokScreenName: id ? id.screenName : undefined,
+    tiktokUserId: id ? id.userId : undefined,
+  });
+  return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}'${id ? " (@" + id.username + ")" : ""} (${cookies.length} cookies)`);
 }
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -279,6 +337,7 @@ function makeRealDeps() {
     importer: { parseImportFile },
     listChromeProfiles,
     getChromeTikTokCookies,
+    fetchIdentity: (cookies) => fetchTikTokIdentity(cookies),
     isTTY: !!process.stdin.isTTY,
     prompt: realPrompt,
     readFile: (p) => fs.readFileSync(p, "utf8"),

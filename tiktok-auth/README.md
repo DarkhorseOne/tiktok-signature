@@ -53,8 +53,11 @@
 # 列出本机 Chrome profile（看哪个登录了 TikTok）
 ./tiktokctl.sh profile chrome
 
-# 提取保存一个账号（交互选 Chrome profile + 起名；或直接指定）
-./tiktokctl.sh profile add work --from "Profile 1"
+# 提取保存"当前 Chrome 里登录的 TikTok 账号"（自动定位已登录的 profile；自动以 @用户名命名）
+./tiktokctl.sh profile add
+# 在 Chrome 切换/重登另一个 TikTok 账号后，再次：
+./tiktokctl.sh profile add
+# （也可显式命名/指定来源）：./tiktokctl.sh profile add 别名 --from "Default"
 
 # 管理
 ./tiktokctl.sh profile list
@@ -69,6 +72,8 @@
 ./tiktokctl.sh restart play   # 切换账号
 ./tiktokctl.sh status         # 显示当前账号
 ```
+
+`profile list` 按 TikTok @用户名显示已保存账号。`refresh` 会校验 Chrome 当前登录的 TikTok 账号是否与该 profile 一致，不一致会拒绝（除非 `--force`）。
 
 注入源：设了账号（`--profile`/菜单）走持久化存储；否则回退到 `.env` 的 `CHROME_PROFILE` 实时模式。
 

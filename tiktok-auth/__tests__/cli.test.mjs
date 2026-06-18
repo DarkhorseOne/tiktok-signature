@@ -12,6 +12,8 @@ function makeDeps(over = {}) {
     prompt: async () => "",
     readFile: () => "",
     statFile: () => ({ size: 0 }),
+    getChromeTikTokCookies: async () => [],
+    fetchIdentity: async () => null,
     ...over,
   };
 }
@@ -35,8 +37,8 @@ describe("run routing", () => {
     const r = await run(["list", "--porcelain"], deps);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe(
-      "work\tchrome\tProfile 1\t2026-06-16T00:00:00.000Z\ttrue\n" +
-        "play\timported\t\t2026-06-16T00:00:00.000Z\tfalse\n",
+      "work\tchrome\tProfile 1\t\t2026-06-16T00:00:00.000Z\ttrue\n" +
+        "play\timported\t\t\t2026-06-16T00:00:00.000Z\tfalse\n",
     );
   });
 
@@ -59,6 +61,32 @@ describe("run routing", () => {
     expect(r.stdout).toBe("work");
     const r2 = await run(["ps-profile", "node auth-server.mjs"], makeDeps());
     expect(r2.stdout).toBe("");
+  });
+
+  test("list --porcelain includes tiktokUsername column", async () => {
+    const deps = makeDeps({
+      store: {
+        listProfiles: () => [
+          { name: "nickma2026", meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokScreenName: "马剑873", refreshedAt: "2026-06-17T00:00:00.000Z", hasSession: true } },
+        ],
+      },
+    });
+    const r = await run(["list", "--porcelain"], deps);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("nickma2026\tchrome\tDefault\tnickma2026\t2026-06-17T00:00:00.000Z\ttrue\n");
+  });
+
+  test("list (human) shows @username", async () => {
+    const deps = makeDeps({
+      store: {
+        listProfiles: () => [
+          { name: "nickma2026", meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokScreenName: "马剑873", refreshedAt: "t", hasSession: true } },
+        ],
+      },
+    });
+    const r = await run(["list"], deps);
+    expect(r.stdout).toMatch(/@nickma2026/);
+    expect(r.stdout).toMatch(/马剑873/);
   });
 });
 
@@ -138,6 +166,119 @@ describe("add / refresh", () => {
     deps.__saved.work = { cookies: [{ name: "sessionid" }], meta: { origin: "chrome", sourceChromeProfile: "Default" } };
     const r = await run(["refresh", "work"], deps);
     expect(r.code).toBe(0);
+  });
+});
+
+describe("add auto-detect + identity", () => {
+  function addDeps(over) {
+    const saved = {};
+    const deps = makeDeps({
+      store: {
+        profileExists: (n) => Object.prototype.hasOwnProperty.call(saved, n),
+        writeProfile: (n, cookies, meta) => { saved[n] = { cookies, meta }; return { name: n, ...meta, hasSession: true }; },
+      },
+      getChromeTikTokCookies: async () => [{ name: "sessionid", domain: ".tiktok.com" }],
+      ...over,
+    });
+    deps.__saved = saved;
+    return deps;
+  }
+
+  test("auto-uses the single logged-in Chrome profile and names by @username", async () => {
+    const deps = addDeps({
+      listChromeProfiles: () => [{ profile: "Default", hasLogin: true }, { profile: "Profile 1", hasLogin: false }],
+      fetchIdentity: async () => ({ username: "nickma2026", screenName: "马剑873", userId: "765" }),
+    });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.nickma2026).toBeDefined();
+    expect(deps.__saved.nickma2026.meta).toMatchObject({ sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokUserId: "765" });
+  });
+
+  test("errors when no Chrome profile is logged into TikTok", async () => {
+    const deps = addDeps({ listChromeProfiles: () => [{ profile: "Default", hasLogin: false }] });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/没有已登录|logged/i);
+  });
+
+  test("multiple logged-in + non-TTY requires --from", async () => {
+    const deps = addDeps({ isTTY: false, listChromeProfiles: () => [{ profile: "Default", hasLogin: true }, { profile: "Profile 1", hasLogin: true }] });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/--from/);
+  });
+
+  test("no name + identity capture fails + non-TTY -> error", async () => {
+    const deps = addDeps({ isTTY: false, listChromeProfiles: () => [{ profile: "Default", hasLogin: true }], fetchIdentity: async () => null });
+    const r = await run(["add"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/name required/i);
+  });
+
+  test("explicit name overrides @username but identity is still stored", async () => {
+    const deps = addDeps({
+      listChromeProfiles: () => [{ profile: "Default", hasLogin: true }],
+      fetchIdentity: async () => ({ username: "nickma2026", screenName: "x", userId: "765" }),
+    });
+    const r = await run(["add", "work"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__saved.work.meta).toMatchObject({ tiktokUsername: "nickma2026", tiktokUserId: "765" });
+  });
+});
+
+describe("refresh account-changed guard", () => {
+  function refDeps(over) {
+    const saved = { acct: { cookies: [{ name: "sessionid" }], meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUserId: "111", tiktokUsername: "a" } } };
+    let writtenMeta = null;
+    const deps = makeDeps({
+      store: {
+        readProfile: (n) => { if (!saved[n]) throw new Error("nf"); return { meta: { name: n, ...saved[n].meta }, cookies: saved[n].cookies }; },
+        writeProfile: (n, c, m) => { writtenMeta = m; saved[n] = { cookies: c, meta: { ...saved[n].meta, ...m } }; return { name: n }; },
+      },
+      getChromeTikTokCookies: async () => [{ name: "sessionid", domain: ".tiktok.com" }],
+      ...over,
+    });
+    deps.__saved = saved;
+    deps.__written = () => writtenMeta;
+    return deps;
+  }
+
+  test("refuses when active TikTok account changed (userId mismatch)", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "222" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/changed|replace/i);
+    expect(deps.__written()).toBeNull(); // writeProfile NOT called
+  });
+
+  test("--force overrides the account-changed guard", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "222" }) });
+    const r = await run(["refresh", "acct", "--force"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBe("222");
+  });
+
+  test("same account refreshes normally", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "a", screenName: "", userId: "111" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBe("111");
+  });
+
+  test("identity capture failure passes undefined (store preserves)", async () => {
+    const deps = refDeps({ fetchIdentity: async () => null });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBeUndefined();
+  });
+
+  test("refuses on username mismatch even when captured userId is empty", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/changed|replace/i);
+    expect(deps.__written()).toBeNull();
   });
 });
 
