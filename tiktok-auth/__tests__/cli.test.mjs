@@ -201,6 +201,53 @@ describe("add auto-detect + identity", () => {
   });
 });
 
+describe("refresh account-changed guard", () => {
+  function refDeps(over) {
+    const saved = { acct: { cookies: [{ name: "sessionid" }], meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUserId: "111", tiktokUsername: "a" } } };
+    let writtenMeta = null;
+    const deps = makeDeps({
+      store: {
+        readProfile: (n) => { if (!saved[n]) throw new Error("nf"); return { meta: { name: n, ...saved[n].meta }, cookies: saved[n].cookies }; },
+        writeProfile: (n, c, m) => { writtenMeta = m; saved[n] = { cookies: c, meta: { ...saved[n].meta, ...m } }; return { name: n }; },
+      },
+      getChromeTikTokCookies: async () => [{ name: "sessionid", domain: ".tiktok.com" }],
+      ...over,
+    });
+    deps.__saved = saved;
+    deps.__written = () => writtenMeta;
+    return deps;
+  }
+
+  test("refuses when active TikTok account changed (userId mismatch)", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "222" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/changed|replace/i);
+    expect(deps.__written()).toBeNull(); // writeProfile NOT called
+  });
+
+  test("--force overrides the account-changed guard", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "222" }) });
+    const r = await run(["refresh", "acct", "--force"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBe("222");
+  });
+
+  test("same account refreshes normally", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "a", screenName: "", userId: "111" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBe("111");
+  });
+
+  test("identity capture failure passes undefined (store preserves)", async () => {
+    const deps = refDeps({ fetchIdentity: async () => null });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(0);
+    expect(deps.__written().tiktokUserId).toBeUndefined();
+  });
+});
+
 describe("rename / delete / backup / import / pick-start", () => {
   function storeMock(initial = {}) {
     const saved = { ...initial };

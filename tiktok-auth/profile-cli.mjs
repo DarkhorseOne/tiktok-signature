@@ -159,12 +159,23 @@ async function cmdRefresh(rest, deps) {
   if (!cookies || !cookies.length) {
     return userErr(`refresh: no cookies extracted from Chrome profile: ${meta.sourceChromeProfile} (kept existing session)`);
   }
-  const fresh = hasSessionCookie(cookies);
-  if (!fresh && !force) {
+  if (!hasSessionCookie(cookies) && !force) {
     return userErr(`refresh got no session cookie for '${name}'; kept existing session (use --force to overwrite)`);
   }
-  deps.store.writeProfile(name, cookies, { origin: "chrome", sourceChromeProfile: meta.sourceChromeProfile });
-  return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}' (${cookies.length} cookies)`);
+  const id = await deps.fetchIdentity(cookies);
+  if (meta.tiktokUserId && id && id.userId && id.userId !== meta.tiktokUserId && !force) {
+    return userErr(
+      `refresh would replace @${meta.tiktokUsername || meta.tiktokUserId} with @${id.username}; the active TikTok account in Chrome changed. Switch back or use --force.`,
+    );
+  }
+  deps.store.writeProfile(name, cookies, {
+    origin: "chrome",
+    sourceChromeProfile: meta.sourceChromeProfile,
+    tiktokUsername: id ? id.username : undefined,
+    tiktokScreenName: id ? id.screenName : undefined,
+    tiktokUserId: id ? id.userId : undefined,
+  });
+  return ok(`refreshed '${name}' from Chrome '${meta.sourceChromeProfile}'${id ? " (@" + id.username + ")" : ""} (${cookies.length} cookies)`);
 }
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
