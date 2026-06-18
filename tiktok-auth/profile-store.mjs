@@ -109,16 +109,20 @@ export function writeProfile(name, cookies, metaIn = {}) {
   ensureDirs(profilesDir(), dir);
 
   const metaPath = path.join(dir, "meta.json");
-  let createdAt;
+  let prev = {};
   try {
-    createdAt = JSON.parse(fs.readFileSync(metaPath, "utf8")).createdAt;
+    prev = JSON.parse(fs.readFileSync(metaPath, "utf8"));
   } catch (e) {}
+  const keep = (k) => (metaIn[k] !== undefined ? metaIn[k] : prev[k] ?? null);
   const now = new Date().toISOString();
   const meta = {
     name,
     origin: metaIn.origin === "imported" ? "imported" : "chrome",
     sourceChromeProfile: metaIn.sourceChromeProfile ?? null,
-    createdAt: createdAt || now,
+    tiktokUsername: keep("tiktokUsername"),
+    tiktokScreenName: keep("tiktokScreenName"),
+    tiktokUserId: keep("tiktokUserId"),
+    createdAt: prev.createdAt || now,
     refreshedAt: now,
     cookieCount: Array.isArray(cookies) ? cookies.length : 0,
     hasSession: hasSessionCookie(cookies),
