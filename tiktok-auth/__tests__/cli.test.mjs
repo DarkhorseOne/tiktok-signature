@@ -37,8 +37,8 @@ describe("run routing", () => {
     const r = await run(["list", "--porcelain"], deps);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe(
-      "work\tchrome\tProfile 1\t2026-06-16T00:00:00.000Z\ttrue\n" +
-        "play\timported\t\t2026-06-16T00:00:00.000Z\tfalse\n",
+      "work\tchrome\tProfile 1\t\t2026-06-16T00:00:00.000Z\ttrue\n" +
+        "play\timported\t\t\t2026-06-16T00:00:00.000Z\tfalse\n",
     );
   });
 
@@ -61,6 +61,32 @@ describe("run routing", () => {
     expect(r.stdout).toBe("work");
     const r2 = await run(["ps-profile", "node auth-server.mjs"], makeDeps());
     expect(r2.stdout).toBe("");
+  });
+
+  test("list --porcelain includes tiktokUsername column", async () => {
+    const deps = makeDeps({
+      store: {
+        listProfiles: () => [
+          { name: "nickma2026", meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokScreenName: "马剑873", refreshedAt: "2026-06-17T00:00:00.000Z", hasSession: true } },
+        ],
+      },
+    });
+    const r = await run(["list", "--porcelain"], deps);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("nickma2026\tchrome\tDefault\tnickma2026\t2026-06-17T00:00:00.000Z\ttrue\n");
+  });
+
+  test("list (human) shows @username", async () => {
+    const deps = makeDeps({
+      store: {
+        listProfiles: () => [
+          { name: "nickma2026", meta: { origin: "chrome", sourceChromeProfile: "Default", tiktokUsername: "nickma2026", tiktokScreenName: "马剑873", refreshedAt: "t", hasSession: true } },
+        ],
+      },
+    });
+    const r = await run(["list"], deps);
+    expect(r.stdout).toMatch(/@nickma2026/);
+    expect(r.stdout).toMatch(/马剑873/);
   });
 });
 

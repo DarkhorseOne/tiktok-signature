@@ -30,13 +30,26 @@ function flagVal(rest, name) {
   return i >= 0 ? rest[i + 1] : undefined;
 }
 
+function profileLabel(meta) {
+  return meta.tiktokUsername
+    ? `@${meta.tiktokUsername}${meta.tiktokScreenName ? " (" + meta.tiktokScreenName + ")" : ""}`
+    : "(no @username)";
+}
+
 function cmdList(rest, deps) {
   const rows = deps.store.listProfiles();
   if (hasFlag(rest, "--porcelain")) {
     return ok(
       rows
         .map((p) =>
-          [p.name, p.meta.origin, p.meta.sourceChromeProfile || "", p.meta.refreshedAt, String(!!p.meta.hasSession)].join("\t"),
+          [
+            p.name,
+            p.meta.origin,
+            p.meta.sourceChromeProfile || "",
+            p.meta.tiktokUsername || "",
+            p.meta.refreshedAt,
+            String(!!p.meta.hasSession),
+          ].join("\t"),
         )
         .map((l) => l + "\n")
         .join(""),
@@ -45,7 +58,10 @@ function cmdList(rest, deps) {
   if (!rows.length) return ok("(no saved profiles; run `profile add`)");
   return ok(
     rows
-      .map((p) => `${p.name}\t[${p.meta.origin}${p.meta.sourceChromeProfile ? " " + p.meta.sourceChromeProfile : ""}]\t${p.meta.refreshedAt}\t${p.meta.hasSession ? "✅" : "❌"}`)
+      .map(
+        (p) =>
+          `${p.name}\t${profileLabel(p.meta)}\t[${p.meta.origin}${p.meta.sourceChromeProfile ? " " + p.meta.sourceChromeProfile : ""}]\t${p.meta.refreshedAt}\t${p.meta.hasSession ? "✅" : "❌"}`,
+      )
       .join("\n"),
   );
 }
