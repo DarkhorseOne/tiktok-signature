@@ -179,7 +179,11 @@ async function cmdRefresh(rest, deps) {
     return userErr(`refresh got no session cookie for '${name}'; kept existing session (use --force to overwrite)`);
   }
   const id = await deps.fetchIdentity(cookies);
-  if (meta.tiktokUserId && id && id.userId && id.userId !== meta.tiktokUserId && !force) {
+  const accountChanged =
+    id &&
+    ((meta.tiktokUserId && id.userId && id.userId !== meta.tiktokUserId) ||
+      (meta.tiktokUsername && id.username && id.username !== meta.tiktokUsername));
+  if (accountChanged && !force) {
     return userErr(
       `refresh would replace @${meta.tiktokUsername || meta.tiktokUserId} with @${id.username}; the active TikTok account in Chrome changed. Switch back or use --force.`,
     );

@@ -272,6 +272,14 @@ describe("refresh account-changed guard", () => {
     expect(r.code).toBe(0);
     expect(deps.__written().tiktokUserId).toBeUndefined();
   });
+
+  test("refuses on username mismatch even when captured userId is empty", async () => {
+    const deps = refDeps({ fetchIdentity: async () => ({ username: "b", screenName: "", userId: "" }) });
+    const r = await run(["refresh", "acct"], deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/changed|replace/i);
+    expect(deps.__written()).toBeNull();
+  });
 });
 
 describe("rename / delete / backup / import / pick-start", () => {
